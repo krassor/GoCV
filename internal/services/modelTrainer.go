@@ -1,4 +1,4 @@
-package faceRecognition
+package services
 
 import (
 	"fmt"

@@ -7,10 +7,10 @@ import (
 )
 
 type FrRouter struct {
-	DHandler handlers.DeviceHandlers
+	FrHandler *handlers.FrHandler
 }
 
-func NewDnnTrainerRouter(deviceHandler handlers.DeviceHandlers) *FrRouter {
+func NewDnnTrainerRouter(frHandler *handlers.FrHandler) *FrRouter {
 	return &FrRouter{
 		FrHandler: frHandler,
 	}
@@ -18,5 +18,5 @@ func NewDnnTrainerRouter(deviceHandler handlers.DeviceHandlers) *FrRouter {
 
 func (frr *FrRouter) Router(r *chi.Mux) {
 	r.Use(cors.AllowAll().Handler)
-	r.Post("/devices", frr.FrHandler.Train)
+	r.Post("/tenant", frr.FrHandler.LoadTenantFoto)
 }

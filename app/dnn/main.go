@@ -1,42 +1,19 @@
-// What it does:
-//
-// This example uses a deep neural network to perform object detection.
-// It can be used with either the Caffe face tracking or Tensorflow object detection models that are
-// included with OpenCV 3.4
-//
-// To perform face tracking with the Caffe model:
-//
-// Download the model file from:
-// https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel
-//
-// You will also need the prototxt config file:
-// https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt
-//
-// To perform object tracking with the Tensorflow model:
-//
-// Download and extract the model file named "frozen_inference_graph.pb" from:
-// http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v1_coco_2017_11_17.tar.gz
-//
-// You will also need the pbtxt config file:
-// https://gist.githubusercontent.com/dkurt/45118a9c57c38677b65d6953ae62924a/raw/b0edd9e8c992c25fe1c804e77b06d20a89064871/ssd_mobilenet_v1_coco_2017_11_17.pbtxt
-//
-// How to run:
-//
-// 		go run ./cmd/dnn-detection/main.go [videosource] [modelfile] [configfile] ([backend] [device])
-//
-
 package main
 
 import (
-	"fmt"
-	"os"
+	"context"
 
-	"gocv.io/x/gocv"
+	"time"
 
-	fd "github.com/GoCV/internal/faceDetector/dnnFaceDetector"
-	fr "github.com/GoCV/internal/faceRecognition"
-	"github.com/GoCV/internal/models"
+	fd "github.com/krassor/GoCV/internal/faceDetector/dnnFaceDetector"
+	"github.com/krassor/GoCV/internal/graceful"
+	"github.com/krassor/GoCV/internal/logger"
+	"github.com/krassor/GoCV/internal/services"
+	"github.com/krassor/GoCV/internal/transport/httpServer"
+	"github.com/krassor/GoCV/internal/transport/httpServer/handlers"
+	"github.com/krassor/GoCV/internal/transport/httpServer/routers"
 	"github.com/rs/zerolog/log"
+	"gocv.io/x/gocv"
 )
 
 func main() {
@@ -58,6 +35,7 @@ func main() {
 
 	// img_fd := gocv.NewMat()
 	// defer img_fd.Close()
+	logger.InitLogger()
 
 	var dnnObjectConfig fd.DnnObjectConfig = fd.DnnObjectConfig{
 		SwapRGB: false,
@@ -80,17 +58,27 @@ func main() {
 	}()
 	if err != nil {
 		log.Error().Msgf("Error init faceDetector: %s", err)
-		os.Exit(0)
+		return
 	}
 
-	tenant := new(models.Tenant)
-	tenant.Name = "Dmitrii"
-	tenant.Surname = "Smetankin"
+	trainer := services.NewDnnTrainer(faceDetector)
+	handler := handlers.NewFrHandler(trainer)
+	router := routers.NewDnnTrainerRouter(handler)
+	httpServer := httpServer.NewHttpServer(router)
 
-	trainer := fr.NewDnnTrainer(faceDetector)
-	if err := trainer.TrainModel(tenant); err != nil {
-		fmt.Printf("trainer error: %s", err)
-	}
+	maxSecond := 15 * time.Second
+	waitShutdown := graceful.GracefulShutdown(
+		context.Background(),
+		maxSecond,
+		map[string]graceful.Operation{
+			"http": func(ctx context.Context) error {
+				return httpServer.Shutdown(ctx)
+			},
+		},
+	)
+
+	go httpServer.Listen()
+	<-waitShutdown
 
 	// fmt.Printf("Start reading device: %v\n", deviceID)
 

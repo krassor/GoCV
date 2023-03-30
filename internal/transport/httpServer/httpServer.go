@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/krassor/GoCV/internal/transport/httpServer/routers"
 	"github.com/go-chi/chi/v5"
+	"github.com/krassor/GoCV/internal/transport/httpServer/routers"
 	"github.com/rs/zerolog/log"
 )
 
@@ -26,8 +26,14 @@ func (h *HttpServer) Listen() {
 	app := chi.NewRouter()
 	h.Router.Router(app)
 
-	serverPort := os.Getenv("FR_HTTP_PORT")
-	serverAddress := os.Getenv("FR_HTTP_HOST_LISTEN")
+	serverPort, ok := os.LookupEnv("FR_HTTP_PORT")
+	if !ok {
+		serverPort = "8080"
+	}
+	serverAddress, ok := os.LookupEnv("FR_HTTP_HOST_LISTEN")
+	if !ok {
+		serverAddress = "127.0.0.1"
+	}
 	log.Info().Msgf("Server http get env %s:%s ", serverAddress, serverPort)
 
 	h.httpServer = &http.Server{
