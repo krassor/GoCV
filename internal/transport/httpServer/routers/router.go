@@ -19,4 +19,6 @@ func NewDnnTrainerRouter(frHandler *handlers.FrHandler) *FrRouter {
 func (frr *FrRouter) Router(r *chi.Mux) {
 	r.Use(cors.AllowAll().Handler)
 	r.Post("/tenant", frr.FrHandler.LoadTenantFoto)
+	//r.Get("/debug/pprof/*", http.DefaultServeMux.ServeHTTP)
+
 }

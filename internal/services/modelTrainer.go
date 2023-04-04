@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/krassor/GoCV/internal/models"
+	"github.com/krassor/GoCV/internal/pkg/utils"
+
 	//fd "github.com/GoCV/internal/faceDetector/dnnFaceDetector"
 	"image"
 
@@ -20,7 +22,7 @@ var (
 )
 
 type FaceDetector interface {
-	DetectAllFacesOnCapture(src *gocv.Mat) (faces []gocv.Mat, rect []image.Rectangle)
+	DetectAllFacesOnCapture(*gocv.Mat) (faces []gocv.Mat, rect []image.Rectangle, err error)
 }
 
 type DnnTrainer struct {
@@ -36,13 +38,17 @@ func NewDnnTrainer(faceDetector FaceDetector) *DnnTrainer {
 func (dnnTrainer *DnnTrainer) TrainModel(tenant *models.Tenant) error {
 	var facesToTrain []gocv.Mat
 	var labelsToTrain []int
+	var img = gocv.NewMat()
+
+	defer img.Close()
+
 	//var labels = make(map[string]int)
 	fr := contrib.NewLBPHFaceRecognizer()
 
 	tenantLabel := fmt.Sprintf("%s %s", tenant.Surname, tenant.Name)
 	tenantDatasetPath := path.Join(datasetPath, tenantLabel)
 
-	imageFiles, err := listDir(tenantDatasetPath)
+	imageFiles, err := utils.ListDir(tenantDatasetPath, isImage)
 
 	if err != nil {
 		return fmt.Errorf("Error read tenant dir: %w", err)
@@ -56,8 +62,11 @@ func (dnnTrainer *DnnTrainer) TrainModel(tenant *models.Tenant) error {
 
 	for i, file := range imageFiles {
 		fmt.Printf("Read %d/%d imageFile: %v\n", i+1, len(imageFiles), file)
-		img := gocv.IMRead(file, gocv.IMReadColor)
-		faces, _ := dnnTrainer.FaceDetector.DetectAllFacesOnCapture(&img)
+		img = gocv.IMRead(file, gocv.IMReadColor)
+		faces, _ , err := dnnTrainer.FaceDetector.DetectAllFacesOnCapture(&img)
+		if err != nil {
+			return err
+		}
 
 		if len(faces) > 1 {
 			fmt.Printf("\tThere are %d faces on the foto \"%s\"\n", len(faces), file)
@@ -85,7 +94,7 @@ func (dnnTrainer *DnnTrainer) TrainModel(tenant *models.Tenant) error {
 
 func createOrCleanPath(cleanPath string, tenant *models.Tenant) error {
 	if err := os.Mkdir(cleanPath, 0755); err != nil {
-		roiExistFiles, errListDir := listDir(cleanPath)
+		roiExistFiles, errListDir := utils.ListDir(cleanPath, isImage)
 		if errListDir != nil {
 			return fmt.Errorf("Error read roi dir \"%s %s\": %w", tenant.Surname, tenant.Name, err)
 		}
@@ -94,30 +103,6 @@ func createOrCleanPath(cleanPath string, tenant *models.Tenant) error {
 		}
 	}
 	return nil
-}
-
-// listDir return slice of images path in srcPath, excluding within directories.
-// Return error if directory does not exist
-func listDir(srcPath string) ([]string, error) {
-	var imageFiles []string
-
-	files, err := os.ReadDir(srcPath) //ioutil.ReadDir(srcPath)
-	if err != nil {
-		return nil, fmt.Errorf("Error read padth: %w", err)
-	}
-
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		} else {
-			fileName := file.Name()
-			if isImage(fileName) {
-				imageFiles = append(imageFiles, path.Join(srcPath, fileName))
-			}
-
-		}
-	}
-	return imageFiles, nil
 }
 
 func isImage(filename string) bool {

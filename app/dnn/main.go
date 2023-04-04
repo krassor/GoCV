@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"time"
 
 	fd "github.com/krassor/GoCV/internal/faceDetector/dnnFaceDetector"
+	fr "github.com/krassor/GoCV/internal/faceRecognition"
 	"github.com/krassor/GoCV/internal/graceful"
 	"github.com/krassor/GoCV/internal/logger"
 	"github.com/krassor/GoCV/internal/services"
@@ -14,6 +18,8 @@ import (
 	"github.com/krassor/GoCV/internal/transport/httpServer/routers"
 	"github.com/rs/zerolog/log"
 	"gocv.io/x/gocv"
+
+	"github.com/hybridgroup/mjpeg"
 )
 
 func main() {
@@ -50,22 +56,62 @@ func main() {
 		ConfigPath: "data/deploy.prototxt",
 	}
 
+	var faceRecognitionConfig fr.FaceRecognitionConfig = fr.FaceRecognitionConfig{
+		ModelPath:  "dnnModels",
+		Confidence: 70,
+	}
+
 	faceDetector, err := fd.NewDnnFaceDetector(faceDetectorConfig, dnnObjectConfig)
-	defer func() {
-		if err := faceDetector.CloseNet(); err != nil {
-			log.Error().Msgf("Error close net: %s", err)
-		}
-	}()
 	if err != nil {
 		log.Error().Msgf("Error init faceDetector: %s", err)
 		return
 	}
+	// defer func() {
+	// 	if err := faceDetector.CloseNet(); err != nil {
+	// 		log.Error().Msgf("Error close net: %s", err)
+	// 	}
+	// }()
+
+	frFaceDetector, err := fd.NewDnnFaceDetector(faceDetectorConfig, dnnObjectConfig)
+	if err != nil {
+		log.Error().Msgf("Error init frFaceDetector: %s", err)
+		return
+	}
+	// defer func() {
+	// 	if err := frFaceDetector.CloseNet(); err != nil {
+	// 		log.Error().Msgf("Error close net: %s", err)
+	// 	}
+	// }()
 
 	trainer := services.NewDnnTrainer(faceDetector)
 	handler := handlers.NewFrHandler(trainer)
 	router := routers.NewDnnTrainerRouter(handler)
 	httpServer := httpServer.NewHttpServer(router)
 
+	faceRecognition := fr.NewFaceRecognition(frFaceDetector)
+
+	//----------
+	/*
+		webcam, err := gocv.OpenVideoCapture(0)
+		if err != nil {
+			fmt.Printf("Error opening capture device: %v\n", 0)
+			return
+		}
+		defer webcam.Close()
+
+		// create the mjpeg stream
+		stream := mjpeg.NewStream()
+
+		// start capturing
+		go mjpegCapture(webcam, stream)
+
+		fmt.Println("Capturing. Point your browser to 127.0.0.1:8554")
+
+		// start http server
+		http.Handle("/", stream)
+		log.Err((http.ListenAndServe("127.0.0.1:8554", nil)))
+	*/
+	//----------
 	maxSecond := 15 * time.Second
 	waitShutdown := graceful.GracefulShutdown(
 		context.Background(),
@@ -74,95 +120,40 @@ func main() {
 			"http": func(ctx context.Context) error {
 				return httpServer.Shutdown(ctx)
 			},
+			"faceDetector": func(ctx context.Context) error {
+				return faceDetector.CloseNet(ctx)
+			},
+			"frfaceDetector": func(ctx context.Context) error {
+				return frFaceDetector.CloseNet(ctx)
+			},
 		},
 	)
 
+	newCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	go httpServer.Listen()
+	go faceRecognition.Recognition(newCtx, faceRecognitionConfig, 0)
+	go http.ListenAndServe("localhost:8081", nil)
 	<-waitShutdown
 
-	// fmt.Printf("Start reading device: %v\n", deviceID)
+}
 
-	// if err := os.Mkdir("dataset", 0770); err != nil {
-	// 	fmt.Printf("%s\n", err)
-	// }
-	// if err := os.Mkdir("model", 0770); err != nil {
-	// 	fmt.Printf("%s\n", err)
-	// }
+func mjpegCapture(webcam *gocv.VideoCapture, stream *mjpeg.Stream) {
+	img := gocv.NewMat()
+	defer img.Close()
 
-	// count := 0
-	// var (
-	// 	img_slice []gocv.Mat
+	for {
+		if ok := webcam.Read(&img); !ok {
+			fmt.Printf("Device closed: %v\n", 0)
+			return
+		}
+		if img.Empty() {
+			continue
+		}
 
-	// 	label  int = 1
-	// 	labels []int
-
-	// 	//modelName string = ""
-	// 	faces []gocv.Mat
-
-	// 	pr  int
-	// 	per contrib.PredictResponse
-	// )
-
-	// for {
-	// 	if ok := webcam.Read(&img); !ok {
-	// 		fmt.Printf("Device closed: %v\n", deviceID)
-	// 		return
-	// 	}
-	// 	if img.Empty() {
-	// 		continue
-	// 	}
-
-	// 	faces, _ = faceDetector.DetectAllFacesOnCapture(&img)
-
-	// 	img_show := img.Clone()
-	// 	gocv.Flip(img_show, &img_show, 1)
-
-	// 	fr := contrib.NewLBPHFaceRecognizer()
-
-	// 	var face gocv.Mat
-
-	// 	font := gocv.FontHersheyComplexSmall
-	// 	text := ""
-
-	// 	switch {
-	// 	case cap(faces) > 0:
-	// 		face = faces[0]
-	// 		gocv.CvtColor(face, &face, gocv.ColorRGBToGray)
-
-	// 		if _, err := os.Open("model/modelname_2.yml"); err != nil {
-	// 			fmt.Printf("No model file\n")
-	// 		} else {
-	// 			fr.LoadFile("model/modelname_2.yml")
-	// 			per = fr.PredictExtendedResponse(face)
-	// 			pr = fr.Predict(face)
-
-	// 			text = fmt.Sprintf("lblpr: %v, label: %v, conf: %.1f", pr, per.Label, 100-per.Confidence)
-
-	// 		}
-	// 	case cap(faces) <= 0:
-	// 		text = "No faces on the capture"
-	// 	}
-
-	// 	gocv.PutText(&img_show, text, image.Point{30, 30}, font, 1, color.RGBA{0, 255, 0, 0}, 1)
-	// 	window.IMShow(img_show)
-
-	// 	key := window.WaitKey(20)
-	// 	if key == 's' && cap(faces) > 0 {
-	// 		gocv.IMWrite(fmt.Sprintf("dataset/screenshot_%d.jpg", count), face)
-	// 		img_slice = append(img_slice, face)
-	// 		labels = append(labels, label)
-	// 		count++
-	// 		continue
-	// 	} else if key == 't' {
-	// 		fr.Train(img_slice, labels)
-	// 		fr.SaveFile(fmt.Sprintf("model/modelname_%d.yml", label))
-	// 		img_slice = nil
-	// 		labels = nil
-	// 	} else if key == 'l' {
-	// 		label++
-	// 	} else if key >= 0 {
-	// 		break
-	// 	}
-
-	// }
+		buf, _ := gocv.IMEncode(".jpg", img)
+		stream.UpdateJPEG(buf.GetBytes())
+		buf.Close()
+	}
 }

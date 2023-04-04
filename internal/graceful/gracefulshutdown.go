@@ -21,6 +21,7 @@ func GracefulShutdown(ctx context.Context, timeout time.Duration, ops map[string
 
 		// add any other syscalls that you want to be notified with
 		signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer signal.Stop(s)
 		<-s
 
 		log.Info().Msgf("shutting down")

@@ -1,6 +1,7 @@
 package dnnFaceDetector
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -9,10 +10,10 @@ import (
 )
 
 type FaceDetectorConfig struct {
-	Backend gocv.NetBackendType
-	Target  gocv.NetTargetType
-	ModelPath   string
-	ConfigPath  string
+	Backend    gocv.NetBackendType
+	Target     gocv.NetTargetType
+	ModelPath  string
+	ConfigPath string
 }
 
 type DnnObjectConfig struct {
@@ -25,9 +26,10 @@ type DnnFaceDetector struct {
 	faceDetectorConfig FaceDetectorConfig
 	dnnObjectConfig    DnnObjectConfig
 	net                gocv.Net
+	blob               gocv.Mat
+	prob               gocv.Mat
 }
 
-//
 func NewDnnFaceDetector(faceDetectorConfig FaceDetectorConfig, dnnObjectConfig DnnObjectConfig) (*DnnFaceDetector, error) {
 
 	var fd DnnFaceDetector
@@ -73,32 +75,43 @@ func NewDnnFaceDetector(faceDetectorConfig FaceDetectorConfig, dnnObjectConfig D
 	// 	fd.dnnObjectConfig.SwapRGB = true
 	// }
 
+	fd.blob = gocv.NewMat()
+	fd.prob = gocv.NewMat()
+
 	return &fd, nil
 }
 
-func (fd *DnnFaceDetector) CloseNet() error {
-	if err := fd.net.Close(); err != nil {
-		return fmt.Errorf("Error close net: %w", err)
+func (fd *DnnFaceDetector) CloseNet(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("Error close dnn net")
+	default:
+		if err := fd.net.Close(); err != nil {
+			return fmt.Errorf("Error close net: %w", err)
+		}
+		fd.blob.Close()
+		fd.prob.Close()
+		return nil
 	}
-	return nil
 }
 
-func (fd *DnnFaceDetector) DetectAllFacesOnCapture(src *gocv.Mat) (faces []gocv.Mat, rect []image.Rectangle) {
-	// convert image Mat to 300x300 blob that the object detector can analyze
-	blob := gocv.BlobFromImage(*src, fd.dnnObjectConfig.Ratio, image.Pt(300, 300), fd.dnnObjectConfig.Mean, fd.dnnObjectConfig.SwapRGB, false)
-	// feed the blob into the detector
-	fd.net.SetInput(blob, "")
-	// run a forward pass thru the network
-	prob := fd.net.Forward("")
+func (fd *DnnFaceDetector) DetectAllFacesOnCapture(src *gocv.Mat) (faces []gocv.Mat, rect []image.Rectangle, err error) {
 
+	if fd.net.Empty() {
+		return nil, nil, fmt.Errorf("Net is empty")
+	}
+	// convert image Mat to 300x300 blob that the object detector can analyze
+	fd.blob = gocv.BlobFromImage(*src, fd.dnnObjectConfig.Ratio, image.Pt(300, 300), fd.dnnObjectConfig.Mean, fd.dnnObjectConfig.SwapRGB, false)
+	// feed the blob into the detector
+	fd.net.SetInput(fd.blob, "")
+	// run a forward pass thru the network
+	fd.prob = fd.net.Forward("")
 	//img_fd := src.Clone()
 
-	faces, rect = performDetection(src, prob)
+	faces, rect = performDetection(src, fd.prob)
 
-	prob.Close()
-	blob.Close()
+	return faces, rect, nil
 
-	return faces, rect
 }
 
 // performDetection analyzes the results from the detector network,

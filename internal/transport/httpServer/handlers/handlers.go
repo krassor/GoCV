@@ -18,6 +18,8 @@ import (
 	"github.com/krassor/GoCV/internal/models"
 	"github.com/krassor/GoCV/internal/pkg/utils"
 	"github.com/rs/zerolog/log"
+
+	
 )
 
 type TrainerService interface {
